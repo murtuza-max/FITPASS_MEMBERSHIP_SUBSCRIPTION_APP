@@ -1,0 +1,291 @@
+
+import 'dart:convert';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_auth/model/notification/displayNotification.dart';
+import 'package:flutter_auth/model/notification/local_notification_service.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:http/http.dart' as http;
+
+class GlobalNotificationPage extends StatefulWidget {
+  const GlobalNotificationPage({Key? key}) : super(key: key);
+
+  @override
+  _GlobalNotificationPageState createState() => _GlobalNotificationPageState();
+}
+
+class _GlobalNotificationPageState extends State<GlobalNotificationPage> {
+
+  late AndroidNotificationChannel channel;
+  late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
+   String msgtitle ="Title";
+   String msgbody ="Body";
+  String token = " ";
+
+ // PushNotification _notificationinfo;
+  int _counter = 0;
+
+  void _incrementCounter() {
+    setState(() {
+      _counter++;
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    requestPermission();
+    loadFCM();
+    listenFCM();
+    getToken();
+    FirebaseMessaging.instance.subscribeToTopic("Fitness");
+
+    ////////////////////////////////////////////////////
+
+    // 1. This method call when app in terminated state and you get a notification
+    // when you click on notification app open from terminated state and you can get notification data in this method
+
+    FirebaseMessaging.instance.getInitialMessage().then(
+          (message) {
+        print("FirebaseMessaging.instance.getInitialMessage");
+        if (message != null) {
+          print("New Notification");
+          if (message.data['_id'] != null) {
+
+            msgtitle=message.notification!.title!;
+            msgbody=message.notification!.body!;
+
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => DisplayNotification(msgtitle,msgbody),
+              ),
+            );
+          }
+        }
+      },
+    );
+
+
+    // 3. This method only call when App in background and not terminated(not closed)
+    FirebaseMessaging.onMessageOpenedApp.listen(
+          (message) {
+        print("FirebaseMessaging.onMessageOpenedApp.listen");
+        if (message.notification != null) {
+          print(message.notification!.title);
+          msgtitle=message.notification!.title!;
+
+          print(message.notification!.body);
+          msgbody=message.notification!.body!;
+
+          print("message.data22 ${message.data['_id']}");
+          if (message.data['_id'] != null) {
+
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => DisplayNotification(msgtitle,msgbody),
+              ),
+            );
+          }
+        }
+      },
+    );
+  }
+
+
+  void sendPushMessage() async {
+    try {
+      await http.post(
+        Uri.parse('https://fcm.googleapis.com/fcm/send'),
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+          'Authorization':
+          'key=AAAAxr8RfEU:APA91bGVS1fNb5o0_uZRi0g6pzty9WyTlLPxwNMkM3nC3YQteNg9eiLXT0ohN14aFrzZDzhTbpNqlAX8jtCFLiB_y33jG5poUznGSFH5BfZ0WpJruj6KSk1sFlj_qnekrajgfVoIYM_C',
+        },
+        body: jsonEncode(
+          <String, dynamic>{
+            'notification': <String, dynamic>{
+              'body': 'Test Body',
+              'title': 'Test Title 2'
+            },
+            'priority': 'high',
+            'data': <String, dynamic>{
+              'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+              'id': '1',
+              'status': 'done'
+            },
+            "to": "$token",
+          },
+        ),
+      );
+    } catch (e) {
+      print("error push notification");
+    }
+  }
+
+  void getToken() async {
+    await FirebaseMessaging.instance.getToken().then((token) {
+      setState(() {
+        token = token;
+      });
+    });
+  }
+
+  void requestPermission() async {
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
+
+    NotificationSettings settings = await messaging.requestPermission(
+      alert: true,
+      announcement: false,
+      badge: true,
+      carPlay: false,
+      criticalAlert: false,
+      provisional: false,
+      sound: true,
+    );
+
+    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+      print('User granted permission');
+    } else if (settings.authorizationStatus ==
+        AuthorizationStatus.provisional) {
+      print('User granted provisional permission');
+    } else {
+      print('User declined or has not accepted permission');
+    }
+  }
+
+
+  void listenFCM() async {
+
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      RemoteNotification? notification = message.notification;
+      AndroidNotification? android = message.notification?.android;
+      ////////////////
+      msgtitle=message.notification!.title!;
+      msgbody=message.notification!.body!;
+      ////////////////////////
+      print("message.notification.title : ");
+      print(message.notification!.title);
+      print("message.notification.body : ");
+      print(message.notification!.body);
+      if (notification != null && android != null && !kIsWeb) {
+        flutterLocalNotificationsPlugin.show(
+          notification.hashCode,
+          notification.title,
+          notification.body,
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              channel.id,
+              channel.name,
+              color: Colors.blue,
+              playSound: true,
+              // TODO add a proper drawable resource to android, for now using
+              //      one that already exists in example app.
+              icon: 'launch_background',
+            ),
+          ),
+        );
+       /* Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => DisplayNotification(msgtitle,msgbody),
+          ),
+        );*/
+
+        //DisplayNotification(msgtitle,msgbody);
+       // LocalNotificationService.createanddisplaynotification(message);
+      }
+    });
+  }
+
+  void loadFCM() async {
+    if (!kIsWeb) {
+      channel = const AndroidNotificationChannel(
+        'high_importance_channel', // id
+        'High Importance Notifications', // title
+        importance: Importance.high,
+        enableVibration: true,
+      );
+
+      flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+      /// Create an Android Notification Channel.
+      ///
+      /// We use this channel in the `AndroidManifest.xml` file to override the
+      /// default FCM channel to enable heads up notifications.
+      await flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(channel);
+
+      /// Update the iOS foreground notification presentation options to allow
+      /// heads up notifications.
+      await FirebaseMessaging.instance
+          .setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    }
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    return new Scaffold(
+      appBar: AppBar(
+        title: Padding(
+          padding: const EdgeInsets.fromLTRB(60, 12, 15, 12),
+          child: Text("Notifications"),
+        ),
+      ),
+      body: Center(
+        child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Text(
+                "Flutter Notification",
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(
+                height: 18,
+              ),
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.deepPurple,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Text(
+                      "$_counter",
+                      style: TextStyle(color: Colors.white, fontSize: 20),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 35,
+              ),
+
+              RaisedButton(
+                onPressed: () {
+                  sendPushMessage();
+                  _incrementCounter;
+                },
+                color: Colors.deepPurpleAccent,
+                padding: EdgeInsets.symmetric(horizontal: 50),
+                child: Text(
+                  "Notification",
+                  style: TextStyle(
+                      fontSize: 14, letterSpacing: 2.2, color: Colors.white),
+                ),
+              )
+            ]
+        ),
+      ),
+    );
+  }
+}
